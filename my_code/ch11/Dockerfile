@@ -1,8 +1,8 @@
 # 使用官方的 Ubuntu 基础镜像
-FROM ubuntu:22.04
+FROM ubuntu:latest
 
-# 避免在安装 tzdata 等包时卡在交互界面
-ENV DEBIAN_FRONTEND=noninteractive
+# # 避免在安装 tzdata 等包时卡在交互界面
+# ENV DEBIAN_FRONTEND=noninteractive
 
 # 安装 gcc, make, gdb 等基础编译和调试工具
 RUN apt-get update && \
@@ -19,6 +19,7 @@ COPY . /app
 # 如果你没有用 csapp.c，可以把 csapp.c -lpthread 删掉
 RUN gcc -o server echo_server.c csapp.c -lpthread
 RUN gcc -o client echo_client.c csapp.c -lpthread
+RUN apt-get update && apt-get install -y iputils-ping
 
 # 默认命令（可以留空，我们在 docker run 时指定执行什么）
-CMD ["/bin/bash"]
+CMD ["/bin/sh"]
