@@ -10,6 +10,8 @@ void echo(int connfd)
     {
         rio_writen(connfd, buf, n);
         printf("Received %d bytes data\n", n);
+        fputs(buf, stdout); // why this doesnt work?
+        // fflush(stdout);
     }
 }
 
