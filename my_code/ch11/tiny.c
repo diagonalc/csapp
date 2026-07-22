@@ -59,7 +59,7 @@ void doit(int fd)
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
 {
     char buf[MAXLINE], body[MAXLINE];
-    //sprintf with a offset "len", as strcat does not accept placeholders like "%s" while something like "sprintf(buf, "%s %s", buf, uri)" is undefined
+    // sprintf with a offset "len", as strcat does not accept placeholders like "%s" while something like "sprintf(buf, "%s %s", buf, uri)" is undefined
     int len = 0;
     len += sprintf(body + len, "<html><title>Tiny Error</title>");
     len += sprintf(body + len, "<body bgcolor=\"ffffff\">\r\n");
@@ -69,7 +69,7 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
 
     sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
     Rio_writen(fd, buf, strlen(buf));
-    //although the buffer zone won't be flushed, sprintf will attach a \0 at the end and strlen(buf) will only count to \0
+    // although the buffer zone won't be flushed, sprintf will attach a \0 at the end and strlen(buf) will only count to \0
     sprintf(buf, "Content-type: text/html\r\n");
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
@@ -77,25 +77,103 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
     Rio_writen(fd, body, strlen(body));
 }
 
-void read_requesthdrs(rio_t *rp){
+void read_requesthdrs(rio_t *rp)
+{
     char buf[MAXLINE];
 
-    rio_readlineb(rio, buf, MAXLINE)
-    
-    while(strcmp(buf, "\r\n")){
+    rio_readlineb(rio, buf, MAXLINE);
+
+    while (strcmp(buf, "\r\n")) // looking for a return and a empty line (marks as the ending of request headers)
+    {
         printf("%s", buf);
-        rio_readlineb(rio, buf, MAXLINE);
+        rio_readlineb(rio, buf, MAXLINE); // just comsuming the request headers as we're not gonna read them anyway
     }
     return;
 }
 
-void parse_uri(char* uri, char *filename, char* cgiargs){
+void parse_uri(char *uri, char *filename, char *cgiargs)
+{
     char *ptr;
-    if(!strstr(uri, "cgi-bin")){    //static content, as all dynamic content should be inside the folder "cgi-bin"
-        strcpy(cgiargs, "");        //erase cgiargs, as client requests a static content
-        strcpy(filename, ".");
-        strcpy
+    if (!strstr(uri, "cgi-bin"))
+    {                          // static content, as all dynamic content should be inside the folder "cgi-bin"
+        strcpy(cgiargs, "");   // erasing cgiargs, as client requests a static content (but there's nothing inside anyway)
+        strcpy(filename, "."); // same for filename
+        strcat(filename, uri);
+        if (filename[strlen(filename) - 1] == '/')
+            strcat(filename, "home.html");
+        return 1; // return 1 if its static
     }
+    else
+    {
+        ptr = strchr(uri, '?'); // return the pointer to the required char
+        if (ptr)
+        {
+            strcpy(cgiargs, ptr + 1); // the next char after '?'
+            *ptr = '\0';              // uri: from "/cgi-bin/adder?150&120" to "/cgi-bin/adder \0 150&120", cutting the uri string. the arguments part "150&120" will not be read again due to the '\0'
+        }
+        else
+        {
+            strcpy(cgiargs, "");
+        }
+        strcpy(filename, ".");
+        strcat(filename, uri);
+        return 0; // return 0 it its dynamic
+    }
+}
+
+void serve_static(int fd, char *filename, int filesize)
+{
+    int srcfd;
+    char *srcp, filetype[MAXLINE], buf[MAXBUF];
+    get_filetype(filename, filetype);
+    int ofs = 0;
+    ofs += sprintf(buf + ofs, "HTTP/1.0 200 OK\r\n");
+    ofs += sprintf(buf + ofs, "Server: Tiny Web Server\r\n");
+    ofs += sprintf(buf + ofs, "Connection: close\r\n");
+    ofs += sprintf(buf + ofs, "Content-length: %d\r\n", filesize);
+    ofs += sprintf(buf + ofs, "Content-type: %s\r\n\r\n", filesize); // two consecutive \r\n marks the ending of the headers
+    rio_writen(fd, buf, strlen(buf));
+
+    printf("Response headers:\n");
+    printf("%s", buf);
+
+    srcfd = open(filename, O_RDONLY, 0);
+    srcp = mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+    close(srcfd);
+    rio_writen(fd, srcp, filesize);
+    munmap(srcp, filesize);
+}
+
+void get_filetype(char *filename, char *filetype)
+{
+    if (strstr(filename, ".html"))
+        strcpy(filetype, "text/html");
+    else if (strstr(filename, ".gif"))
+        strcpy(filetype, "image/gif");
+    else if (strstr(filename, ".png"))
+        strcpy(filetype, "image/png");
+    else if (strstr(filename, ".jpg"))
+        strcpy(filetype, "image/jpeg");
+    else
+        strcpy(filetype, "text/plain");
+}
+
+void serve_dynamic(int fd, char *filename, char *cgiargs)
+{
+    char buf[MAXLINE];
+    sprintf(buf, "HTTP/1.0 200 OK\r\n");
+    Rio_writen(fd, buf, strlen(buf));
+    sprintf(buf, "Server: Tiny Web Server\r\n");
+    Rio_writen(fd, buf, strlen(buf));
+
+    if (fork() == 0)
+    {
+        // due to CGI Protocol, arguments should be passed to the cgi program through environment variables
+        setenv("QUERY_STRING", cgiargs, 1); // saving the arguments into the environment variables
+        dup2(fd, STDOUT_FILENO);            // so that the std output within the program will be redirect to the client fd
+        execve(filename, emptylist, environ);
+    }
+    wait(NULL);
 }
 
 int main(int argc, char **argv)
