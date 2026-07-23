@@ -37,7 +37,7 @@ void doit(int fd)
     }
     if (is_static)
     {
-        if (!(S_ISREG(statbuf->st_mode)) || !(S_IRUSR & sbuf.st_mode))
+        if (!(S_ISREG(statbuf->st_mode)) || !(S_IRUSR & statbuf->st_mode))
         {
             clienterror(fd, filename, "403", "Forbidden", "Required file cannot be read");
             return;
@@ -46,13 +46,13 @@ void doit(int fd)
     }
     else
     {
-        if (!(S_ISREG(statbuf->st_mode)) || !(S_IRUSR & sbuf.st_mode))
+        if (!(S_ISREG(statbuf->st_mode)) || !(S_IRUSR & statbuf->st_mode))
         {
 
             clienterror(fd, filename, "403", "Forbidden", "Required CGI program cannot be run");
             return;
         }
-        serve_dynamic(fd, filename, cgiargs);
+        serve_dynamic(fd, filename, cgiarg);
     }
 }
 
@@ -81,17 +81,17 @@ void read_requesthdrs(rio_t *rp)
 {
     char buf[MAXLINE];
 
-    rio_readlineb(rio, buf, MAXLINE);
+    rio_readlineb(rp, buf, MAXLINE);
 
     while (strcmp(buf, "\r\n")) // looking for a return and a empty line (marks as the ending of request headers)
     {
         printf("%s", buf);
-        rio_readlineb(rio, buf, MAXLINE); // just comsuming the request headers as we're not gonna read them anyway
+        rio_readlineb(rp, buf, MAXLINE); // just comsuming the request headers as we're not gonna read them anyway
     }
     return;
 }
 
-void parse_uri(char *uri, char *filename, char *cgiargs)
+int parse_uri(char *uri, char *filename, char *cgiargs)
 {
     char *ptr;
     if (!strstr(uri, "cgi-bin"))
@@ -131,7 +131,7 @@ void serve_static(int fd, char *filename, int filesize)
     ofs += sprintf(buf + ofs, "Server: Tiny Web Server\r\n");
     ofs += sprintf(buf + ofs, "Connection: close\r\n");
     ofs += sprintf(buf + ofs, "Content-length: %d\r\n", filesize);
-    ofs += sprintf(buf + ofs, "Content-type: %s\r\n\r\n", filesize); // two consecutive \r\n marks the ending of the headers
+    ofs += sprintf(buf + ofs, "Content-type: %s\r\n\r\n", filetype); // two consecutive \r\n marks the ending of the headers
     rio_writen(fd, buf, strlen(buf));
 
     printf("Response headers:\n");
@@ -161,6 +161,7 @@ void get_filetype(char *filename, char *filetype)
 void serve_dynamic(int fd, char *filename, char *cgiargs)
 {
     char buf[MAXLINE];
+    char *emptylist[] = {NULL};
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Server: Tiny Web Server\r\n");

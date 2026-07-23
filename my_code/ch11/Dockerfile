@@ -17,9 +17,13 @@ COPY . /app
 
 # 编译你的代码 (注意：CSAPP 的代码通常需要链接 pthread 库)
 # 如果你没有用 csapp.c，可以把 csapp.c -lpthread 删掉
-RUN gcc -o server echo_server.c csapp.c -lpthread
-RUN gcc -o client echo_client.c csapp.c -lpthread
-RUN apt-get update && apt-get install -y iputils-ping
+RUN gcc -o server echo_ser.c csapp.c -lpthread
+RUN gcc -o client echo_cli.c csapp.c -lpthread
+RUN gcc -o tiny tiny_dev.c csapp.c -lpthread
+RUN gcc -o cgi-bin/adder cgi-bin/adder.c csapp.c -lpthread
+RUN apt update && apt install -y curl netcat-openbsd
+#RUN apt-get update && apt-get install -y iputils-ping
+
 
 # 默认命令（可以留空，我们在 docker run 时指定执行什么）
 CMD ["/bin/sh"]

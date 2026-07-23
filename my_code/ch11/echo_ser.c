@@ -10,8 +10,7 @@ void echo(int connfd)
     {
         rio_writen(connfd, buf, n);
         printf("Received %d bytes data\n", n);
-        fputs(buf, stdout); // why this doesnt work?
-        // fflush(stdout);
+        fputs(buf, stdout);
     }
 }
 
@@ -31,9 +30,10 @@ int main(int argc, char **argv)
     listenfd = open_listenfd(atoi(argv[1]));
     while (1)
     {
+    	
         clilen = sizeof(struct sockaddr_storage);
-        connfd = accept(listenfd, (SA *)&cliaddr, &clilen);
-        getnameinfo((SA *)&cliaddr, clilen, host, MAXLINE, port, MAXLINE, 0);
+        connfd = accept(listenfd, (SA*)&cliaddr, &clilen);
+        getnameinfo((SA*)&cliaddr, clilen, host, MAXLINE, port, MAXLINE, 0);
         printf("Connected to: %s:%s\n", host, port);
         echo(connfd);
         close(connfd);
