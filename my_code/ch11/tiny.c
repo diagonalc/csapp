@@ -144,6 +144,7 @@ void serve_static(int fd, char *filename, int filesize)
     munmap(srcp, filesize);
 }
 
+
 void get_filetype(char *filename, char *filetype)
 {
     if (strstr(filename, ".html"))
