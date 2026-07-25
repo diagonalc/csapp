@@ -3,9 +3,9 @@
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize);
+void serve_static(int fd, char *filename, int filesize, char *method);
 void get_filetype(char *filename, char *filetype);
-void serve_dynamic(int fd, char *filename, char *cgiargs);
+void serve_dynamic(int fd, char *filename, char *cgiargs, char *method);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
 void doit(int fd)
@@ -27,19 +27,25 @@ void doit(int fd)
         clienterror(fd, buf, "400", "Bad Request", "Tiny web server received a malformed request");
         return;
     }
-    if (strcasecmp(method, "GET"))
+    if (strcasecmp(method, "GET") && strcasecmp(method, "HEAD") && strcasecmp(method, "POST"))
     {
         clienterror(fd, method, "501", "Not Implemented", "Tiny web server has not implement this method yet");
         return;
     }
     read_requesthdrs(&rio);
-
     is_static = parse_uri(uri, filename, cgiarg);
+
+    if (strcasecmp(method, "POST") == 0)
+    {
+        rio_readlineb(&rio, cgiarg, MAXLINE);
+    }
+
     if (stat(filename, &statbuf) < 0)
     {
         clienterror(fd, filename, "404", "Not found", "Required file cannot be found");
         return;
     }
+
     if (is_static)
     {
         if (!(S_ISREG(statbuf.st_mode)) || !(S_IRUSR & statbuf.st_mode))
@@ -47,7 +53,7 @@ void doit(int fd)
             clienterror(fd, filename, "403", "Forbidden", "Required file cannot be read");
             return;
         }
-        serve_static(fd, filename, statbuf.st_size);
+        serve_static(fd, filename, statbuf.st_size, method);
     }
     else
     {
@@ -57,7 +63,7 @@ void doit(int fd)
             clienterror(fd, filename, "403", "Forbidden", "Required CGI program cannot be run");
             return;
         }
-        serve_dynamic(fd, filename, cgiarg);
+        serve_dynamic(fd, filename, cgiarg, method);
     }
 }
 
@@ -128,7 +134,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
     }
 }
 
-void serve_static(int fd, char *filename, int filesize)
+void serve_static(int fd, char *filename, int filesize, char *method)
 {
     int srcfd;
     char *srcp, filetype[MAXLINE], buf[MAXBUF];
@@ -143,6 +149,8 @@ void serve_static(int fd, char *filename, int filesize)
 
     printf("Response headers:\n");
     printf("%s", buf);
+    if (strcasecmp(method, "HEAD") == 0)
+        return;
 
     srcfd = open(filename, O_RDONLY, 0);
     // srcp = mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
@@ -151,6 +159,7 @@ void serve_static(int fd, char *filename, int filesize)
     rio_readn(srcfd, srcp, filesize);
     close(srcfd);
     rio_writen(fd, srcp, filesize);
+    free(srcp);
     // munmap(srcp, filesize);
 }
 
@@ -170,7 +179,7 @@ void get_filetype(char *filename, char *filetype)
         strcpy(filetype, "text/plain");
 }
 
-void serve_dynamic(int fd, char *filename, char *cgiargs)
+void serve_dynamic(int fd, char *filename, char *cgiargs, char *method)
 {
     char buf[MAXLINE];
     char *emptylist[] = {NULL};
@@ -183,7 +192,8 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
     {
         // due to CGI Protocol, arguments should be passed to the cgi program through environment variables
         setenv("QUERY_STRING", cgiargs, 1); // saving the arguments into the environment variables
-        dup2(fd, STDOUT_FILENO);            // so that the std output within the program will be redirect to the client fd
+        setenv("REQUEST_METHOD", method, 1);
+        dup2(fd, STDOUT_FILENO); // so that the std output within the program will be redirect to the client fd
         execve(filename, emptylist, environ);
     }
     wait(NULL);
