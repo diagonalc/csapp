@@ -21,11 +21,12 @@ void doit(int fd)
     rio_readlineb(&rio, buf, MAXLINE);
     printf("Request headers:\n");
     printf("%s\n", buf);
-    if (sscanf(buf, "%s %s %s", method, uri, version) < 3) 
-	{
-    	clienterror(fd, buf, "400", "Bad Request", "Tiny web server received a malformed request");
-    	return;
-	}
+    // rio_writen(fd, buf, strlen(buf));
+    if (sscanf(buf, "%s %s %s", method, uri, version) < 3)
+    {
+        clienterror(fd, buf, "400", "Bad Request", "Tiny web server received a malformed request");
+        return;
+    }
     if (strcasecmp(method, "GET"))
     {
         clienterror(fd, method, "501", "Not Implemented", "Tiny web server has not implement this method yet");
@@ -73,7 +74,7 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
 
     sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
     Rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Connection: close\r\n"); 
+    sprintf(buf, "Connection: close\r\n");
     Rio_writen(fd, buf, strlen(buf));
     // although the buffer zone won't be flushed, sprintf will attach a \0 at the end and strlen(buf) will only count to \0
     sprintf(buf, "Content-type: text/html\r\n");
@@ -89,7 +90,7 @@ void read_requesthdrs(rio_t *rp)
 
     rio_readlineb(rp, buf, MAXLINE);
 
-    while (strcmp(buf, "\r\n") && strcmp(buf, "\n")) 
+    while (strcmp(buf, "\r\n") && strcmp(buf, "\n"))
     {
         printf("%s", buf);
         rio_readlineb(rp, buf, MAXLINE);
@@ -144,10 +145,13 @@ void serve_static(int fd, char *filename, int filesize)
     printf("%s", buf);
 
     srcfd = open(filename, O_RDONLY, 0);
-    srcp = mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+    // srcp = mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+    // Q11.9: read the static file with malloc and rio_readn
+    srcp = malloc(filesize);
+    rio_readn(srcfd, srcp, filesize);
     close(srcfd);
     rio_writen(fd, srcp, filesize);
-    munmap(srcp, filesize);
+    // munmap(srcp, filesize);
 }
 
 void get_filetype(char *filename, char *filetype)
@@ -160,6 +164,8 @@ void get_filetype(char *filename, char *filetype)
         strcpy(filetype, "image/png");
     else if (strstr(filename, ".jpg"))
         strcpy(filetype, "image/jpeg");
+    else if (strstr(filename, ".mpg") || strstr(filename, "mp4"))
+        strcpy(filetype, "video/mpeg");
     else
         strcpy(filetype, "text/plain");
 }
@@ -209,4 +215,3 @@ int main(int argc, char **argv)
 
     exit(0);
 }
-
