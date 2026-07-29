@@ -3,16 +3,22 @@
 
 int main()
 {
-    int i = 0;
-    printf("main\n");
-    int a = 0;
-    while (i < 10)
-    {
+    // int i = 0;
+    // printf("main\n");
+    // int a = 0;
+    // a++;
 
-        pid_t pid = fork();
-        printf("While, a=%d, i = %d\n", a, i);
-        a++;
-        i++;
-        sleep(1);
+    // while (1)
+    // {
+
+    //     pid_t pid = fork();
+    //     printf("i=%d\n", i);
+    //     // a++;
+    //     i++;
+    // }
+    for (int i = 0; i < 2; i++)
+    {
+        fork();
+        printf("Hello\n");
     }
 }
