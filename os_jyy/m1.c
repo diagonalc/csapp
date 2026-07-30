@@ -214,7 +214,7 @@ void process_player_action(Map *map, int player_id, const char *dir)
             error_exit("No empty space '.' left to spawn player.");
         }
     }
-
+    //hi
     // 若未传 --move 参数，说明仅为登场/查看操作，结束
     if (dir == NULL)
         return;
