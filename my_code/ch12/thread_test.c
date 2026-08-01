@@ -26,3 +26,5 @@ void *thread(void *vargp)
     printf("[%d]: %s (cnt=%d)\n", myid, ptr[myid], ++cnt);
     return NULL;
 }
+
+// sem
