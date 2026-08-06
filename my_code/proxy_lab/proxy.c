@@ -21,24 +21,86 @@ void *doit(void *fd);
 void clienterror(int fd, char *cause, char *errnum, char *short_msg, char *long_msg);
 void parse_uri(char *uri, char *host, char *port, char *path);
 void read_requesthdrs(rio_t *rio);
-void cache_insert(char *url, char *buf);
+void cache_init();
+void cache_insert(char *url, char *buf, int size);
 
 struct cache
 {
     cache_line_t lines[MAX_CACHE_LINES];
     int total_size;
-    unsigned int cnt;
+    int total_lines;
+    unsigned long long cnt;
     pthread_mutex_t lock;
 };
 cache_t cache;
 
 struct cache_line
 {
-    unsigned int lru_cnt;
+    unsigned long long lru_cnt;
     char *data;
-    char *url;
+    char url[MAXBUF];
     int size;
+    int is_valid;
 };
+
+void cache_init()
+{
+    cache.total_size = 0;
+    cache.cnt = 0;
+    cache.total_lines = 0;
+    pthread_mutex_init(&cache.lock, NULL);
+    for (int i; i < MAX_CACHE_LINES; i++)
+    {
+        cache.lines[i].is_valid = 0;
+        cache.lines[i].data = NULL;
+    }
+}
+
+void cache_insert(char *url, char *buf, int size)
+{
+    if (size > MAX_OBJECT_SIZE)
+        return;
+
+    pthread_mutex_lock(&cache.lock);
+
+    while (cache.total_size + size > MAX_CACHE_SIZE || cache.total_lines > MAX_CACHE_LINES)
+    {
+        int earliest = MAX_CACHE_LINES + 1;
+        int index_e;
+        for (int i = 0; i < cache.total_lines; i++)
+        {
+            if (cache.lines[i].lru_cnt < earliest)
+            {
+                earliest = cache.lines[i].lru_cnt;
+                index_e = i;
+            }
+        }
+        cache.lines[index_e].is_valid = 0;
+        free(cache.lines[index_e].data);
+        cache.total_size -= cache.lines[index_e].size;
+        cache.total_lines--;
+    }
+
+    int slot = -1;
+    for (int i = 0; i < MAX_CACHE_LINES; i++)
+    {
+        if (!cache.lines[i].is_valid)
+        {
+            slot = i;
+            break;
+        }
+    }
+
+    cache.lines[slot].is_valid = 1;
+    strcpy(cache.lines[slot].data, buf);
+    strcpy(cache.lines[slot].url, url);
+    cache.lines[slot].lru_cnt = cache.cnt;
+    cache.cnt++;
+    cache.total_lines++;
+    cache.lines[slot].size = size;
+
+    pthread_mutex_unlock(&cache.lock);
+}
 
 void *doit(void *clifd_ptr)
 {
