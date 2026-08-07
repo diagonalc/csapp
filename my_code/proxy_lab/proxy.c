@@ -22,7 +22,17 @@ void clienterror(int fd, char *cause, char *errnum, char *short_msg, char *long_
 void parse_uri(char *uri, char *host, char *port, char *path);
 void read_requesthdrs(rio_t *rio);
 void cache_init();
-void cache_insert(char *url, char *buf, int size);
+void cache_insert(char *host, char *path, char *buf, int size);
+
+struct cache_line
+{
+    unsigned long long lru_cnt;
+    char *data;
+    char host[MAXBUF];
+    char path[MAXBUF];
+    int size;
+    int is_valid;
+};
 
 struct cache
 {
@@ -34,42 +44,33 @@ struct cache
 };
 cache_t cache;
 
-struct cache_line
-{
-    unsigned long long lru_cnt;
-    char *data;
-    char url[MAXBUF];
-    int size;
-    int is_valid;
-};
-
 void cache_init()
 {
     cache.total_size = 0;
     cache.cnt = 0;
     cache.total_lines = 0;
     pthread_mutex_init(&cache.lock, NULL);
-    for (int i; i < MAX_CACHE_LINES; i++)
+    for (int i = 0; i < MAX_CACHE_LINES; i++)
     {
         cache.lines[i].is_valid = 0;
         cache.lines[i].data = NULL;
     }
 }
 
-void cache_insert(char *url, char *buf, int size)
+void cache_insert(char *host, char *path, char *buf, int size)
 {
     if (size > MAX_OBJECT_SIZE)
         return;
 
     pthread_mutex_lock(&cache.lock);
 
-    while (cache.total_size + size > MAX_CACHE_SIZE || cache.total_lines > MAX_CACHE_LINES)
+    while (cache.total_size + size > MAX_CACHE_SIZE || cache.total_lines >= MAX_CACHE_LINES)
     {
-        int earliest = MAX_CACHE_LINES + 1;
+        unsigned long long earliest = -1ULL;
         int index_e;
-        for (int i = 0; i < cache.total_lines; i++)
+        for (int i = 0; i < MAX_CACHE_LINES; i++)
         {
-            if (cache.lines[i].lru_cnt < earliest)
+            if (cache.lines[i].lru_cnt < earliest && cache.lines[i].is_valid == 1)
             {
                 earliest = cache.lines[i].lru_cnt;
                 index_e = i;
@@ -92,8 +93,10 @@ void cache_insert(char *url, char *buf, int size)
     }
 
     cache.lines[slot].is_valid = 1;
-    strcpy(cache.lines[slot].data, buf);
-    strcpy(cache.lines[slot].url, url);
+    cache.lines[slot].data = malloc(size);
+    memcpy(cache.lines[slot].data, buf, size);
+    strcpy(cache.lines[slot].host, host);
+    strcpy(cache.lines[slot].path, path);
     cache.lines[slot].lru_cnt = cache.cnt;
     cache.cnt++;
     cache.total_lines++;
