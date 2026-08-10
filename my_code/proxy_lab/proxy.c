@@ -105,6 +105,8 @@ void cache_insert(char *host, char *path, char *buf, int size)
     pthread_mutex_unlock(&cache.lock);
 }
 
+void cache_find();
+
 void *doit(void *clifd_ptr)
 {
     int clifd = *((int *)clifd_ptr);
