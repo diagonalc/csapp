@@ -105,7 +105,7 @@ void cache_insert(char *host, char *path, char *buf, int size)
     pthread_mutex_unlock(&cache.lock);
 }
 
-void cache_find(char){
+void cache_find(char *host){
 
 };
 
