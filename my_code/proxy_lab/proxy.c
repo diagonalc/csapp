@@ -17,12 +17,13 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 
 typedef struct cache_line cache_line_t;
 typedef struct cache cache_t;
-void *doit(void *fd);
+void doit(void *fd);
 void clienterror(int fd, char *cause, char *errnum, char *short_msg, char *long_msg);
 void parse_uri(char *uri, char *host, char *port, char *path);
 void read_requesthdrs(rio_t *rio);
 void cache_init();
 void cache_insert(char *host, char *path, char *buf, int size);
+int cache_find(char *host, char *path, char *buf);
 
 struct cache_line
 {
@@ -105,11 +106,24 @@ void cache_insert(char *host, char *path, char *buf, int size)
     pthread_mutex_unlock(&cache.lock);
 }
 
-void cache_find(char *host){
+int cache_find(char *host, char *path, char *buf)
+{
+    for (int i = 0; i < cache.total_lines; i++)
+    {
+        if (!strcasecmp(cache.lines[i].host, host) && !strcasecmp(cache.lines[i].path, path))
+        {
+            strcpy(buf, cache.lines[i].data);
+            pthread_mutex_lock(&cache.lock);
+            cache.lines[i].lru_cnt = cache.cnt;
+            cache.cnt++;
+            pthread_mutex_unlock(&cache.lock);
+            return 1;
+        }
+    }
+    return 0;
+}
 
-};
-
-void *doit(void *clifd_ptr)
+void doit(void *clifd_ptr)
 {
     int clifd = *((int *)clifd_ptr);
     free(clifd_ptr);
@@ -144,7 +158,7 @@ void *doit(void *clifd_ptr)
     {
         clienterror(clifd, host, "502", "Bad Gateway", "Proxy server cannot connect to the required server");
         close(clifd);
-        return NULL;
+        return;
     }
     rio_readinitb(&rio_server, serverfd);
     sprintf(header, "%s %s HTTP/1.0\r\n", method, path);
@@ -152,15 +166,23 @@ void *doit(void *clifd_ptr)
     sprintf(header + strlen(header), "%s", user_agent_hdr);
     sprintf(header + strlen(header), "Connection: close\r\n");
     sprintf(header + strlen(header), "Proxy-Connection: close\r\n\r\n");
+    if (cache_find(host, path, reply))
+    {
+        rio_writen(clifd, reply, strlen(reply));
+        close(serverfd);
+        close(clifd);
+        return;
+    }
     rio_writen(serverfd, header, strlen(header));
     ssize_t n;
     while ((n = rio_readnb(&rio_server, reply, 65535)) > 0)
     {
         rio_writen(clifd, reply, n);
     }
+    cache_insert(host, path, reply, n);
     close(serverfd);
     close(clifd);
-    return NULL;
+    return;
 }
 
 void read_requesthdrs(rio_t *rio)
@@ -274,4 +296,4 @@ int main(int argc, char **argv)
     printf("%s", user_agent_hdr);
     return 0;
 }
-//ddd
+// ddd
