@@ -17,7 +17,7 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 
 typedef struct cache_line cache_line_t;
 typedef struct cache cache_t;
-void doit(void *fd);
+void *doit(void *fd);
 void clienterror(int fd, char *cause, char *errnum, char *short_msg, char *long_msg);
 void parse_uri(char *uri, char *host, char *port, char *path);
 void read_requesthdrs(rio_t *rio);
@@ -101,6 +101,7 @@ void cache_insert(char *host, char *path, char *buf, int size)
     cache.lines[slot].lru_cnt = cache.cnt;
     cache.cnt++;
     cache.total_lines++;
+    cache.total_size += size;
     cache.lines[slot].size = size;
 
     pthread_mutex_unlock(&cache.lock);
@@ -108,22 +109,27 @@ void cache_insert(char *host, char *path, char *buf, int size)
 
 int cache_find(char *host, char *path, char *buf)
 {
-    for (int i = 0; i < cache.total_lines; i++)
+    pthread_mutex_lock(&cache.lock);
+    for (int i = 0; i < MAX_CACHE_LINES; i++)
     {
-        if (!strcasecmp(cache.lines[i].host, host) && !strcasecmp(cache.lines[i].path, path))
+        if (cache.lines[i].is_valid)
         {
-            strcpy(buf, cache.lines[i].data);
-            pthread_mutex_lock(&cache.lock);
-            cache.lines[i].lru_cnt = cache.cnt;
-            cache.cnt++;
-            pthread_mutex_unlock(&cache.lock);
-            return 1;
+            if (!strcasecmp(cache.lines[i].host, host) && !strcmp(cache.lines[i].path, path))
+            {
+                memcpy(buf, cache.lines[i].data, cache.lines[i].size);
+
+                cache.lines[i].lru_cnt = cache.cnt;
+                cache.cnt++;
+                pthread_mutex_unlock(&cache.lock);
+                return cache.lines[i].size;
+            }
         }
     }
+    pthread_mutex_unlock(&cache.lock);
     return 0;
 }
 
-void doit(void *clifd_ptr)
+void *doit(void *clifd_ptr)
 {
     int clifd = *((int *)clifd_ptr);
     free(clifd_ptr);
@@ -132,9 +138,10 @@ void doit(void *clifd_ptr)
     rio_t rio_cli, rio_server;
     int serverfd;
     char buf[MAXBUF], header[65536];
-    char reply[65536];
+    char reply[MAX_OBJECT_SIZE];
     char method[MAXBUF], uri[MAXBUF], version[MAXBUF];
     char host[MAXBUF], port[MAXBUF], path[MAXBUF];
+    char cache_buf[MAX_OBJECT_SIZE];
 
     rio_readinitb(&rio_cli, clifd);
     rio_readlineb(&rio_cli, buf, MAXBUF);
@@ -153,12 +160,19 @@ void doit(void *clifd_ptr)
     }
     read_requesthdrs(&rio_cli);
     parse_uri(uri, host, port, path);
+    int s = cache_find(host, path, reply);
+    if (s)
+    {
+        rio_writen(clifd, reply, s);
+        close(clifd);
+        return NULL;
+    }
     serverfd = open_clientfd(host, port);
     if (serverfd == -1)
     {
         clienterror(clifd, host, "502", "Bad Gateway", "Proxy server cannot connect to the required server");
         close(clifd);
-        return;
+        return NULL;
     }
     rio_readinitb(&rio_server, serverfd);
     sprintf(header, "%s %s HTTP/1.0\r\n", method, path);
@@ -166,23 +180,26 @@ void doit(void *clifd_ptr)
     sprintf(header + strlen(header), "%s", user_agent_hdr);
     sprintf(header + strlen(header), "Connection: close\r\n");
     sprintf(header + strlen(header), "Proxy-Connection: close\r\n\r\n");
-    if (cache_find(host, path, reply))
-    {
-        rio_writen(clifd, reply, strlen(reply));
-        close(serverfd);
-        close(clifd);
-        return;
-    }
+
     rio_writen(serverfd, header, strlen(header));
     ssize_t n;
-    while ((n = rio_readnb(&rio_server, reply, 65535)) > 0)
+    int ofs = 0;
+    while ((n = rio_readnb(&rio_server, reply, MAX_OBJECT_SIZE)) > 0)
     {
         rio_writen(clifd, reply, n);
+        if (ofs <= MAX_OBJECT_SIZE)
+        {
+            memcpy(cache_buf + ofs, reply, n);
+            ofs += n;
+        }
+        else
+            ofs++;
     }
-    cache_insert(host, path, reply, n);
+    if (ofs > 0 && ofs <= MAX_OBJECT_SIZE)
+        cache_insert(host, path, cache_buf, ofs);
     close(serverfd);
     close(clifd);
-    return;
+    return NULL;
 }
 
 void read_requesthdrs(rio_t *rio)
@@ -257,12 +274,12 @@ void clienterror(int fd, char *cause, char *errnum, char *short_msg, char *long_
     sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, short_msg);
     rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Connection: close\r\n");
-    Rio_writen(fd, buf, strlen(buf));
+    rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Content-type: text/html\r\n");
-    Rio_writen(fd, buf, strlen(buf));
+    rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
-    Rio_writen(fd, buf, strlen(buf));
-    Rio_writen(fd, body, strlen(body));
+    rio_writen(fd, buf, strlen(body));
+    rio_writen(fd, body, strlen(buf));
 }
 
 int main(int argc, char **argv)
@@ -281,7 +298,7 @@ int main(int argc, char **argv)
 
     Signal(SIGPIPE, SIG_IGN);
     listenfd = open_listenfd(argv[1]);
-    int *ptr, i;
+    int *ptr;
     while (1)
     {
         clilen = sizeof(struct sockaddr_storage);
@@ -296,4 +313,3 @@ int main(int argc, char **argv)
     printf("%s", user_agent_hdr);
     return 0;
 }
-// ddd
