@@ -187,7 +187,7 @@ void *doit(void *clifd_ptr)
     while ((n = rio_readnb(&rio_server, reply, MAX_OBJECT_SIZE)) > 0)
     {
         rio_writen(clifd, reply, n);
-        if (ofs <= MAX_OBJECT_SIZE)
+        if (ofs + n <= MAX_OBJECT_SIZE)
         {
             memcpy(cache_buf + ofs, reply, n);
             ofs += n;
@@ -278,8 +278,8 @@ void clienterror(int fd, char *cause, char *errnum, char *short_msg, char *long_
     sprintf(buf, "Content-type: text/html\r\n");
     rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
-    rio_writen(fd, buf, strlen(body));
-    rio_writen(fd, body, strlen(buf));
+    rio_writen(fd, buf, strlen(buf));
+    rio_writen(fd, body, strlen(body));
 }
 
 int main(int argc, char **argv)
@@ -296,6 +296,8 @@ int main(int argc, char **argv)
     socklen_t clilen;
     pthread_t tid;
 
+    cache_init();
+
     Signal(SIGPIPE, SIG_IGN);
     listenfd = open_listenfd(argv[1]);
     int *ptr;
@@ -305,7 +307,7 @@ int main(int argc, char **argv)
         ptr = malloc(sizeof(int));
         connfd = Accept(listenfd, (SA *)&cliaddr, &clilen);
         *ptr = connfd;
-        Getnameinfo((SA *)&cliaddr, clilen, host, MAXLINE, port, MAXLINE, 0);
+        getnameinfo((SA *)&cliaddr, clilen, host, MAXLINE, port, MAXLINE, 0);
         printf("Connected to client: %s:%s\n", host, port);
         pthread_create(&tid, NULL, doit, ptr);
     }
