@@ -1,18 +1,27 @@
 {
     "version": "0.2.0",
     "configurations": [
-      {
-        "name": "gdb proxy",
-        "type": "cppdbg",
-        "request": "launch",
-        "program": "${workspaceFolder}/my_code/proxy_lab/proxy",
-        "args": ["8080"],
-        "cwd": "${workspaceFolder}/my_code/proxy_lab",
-        "MIMode": "gdb",
-        "miDebuggerPath": "/usr/bin/gdb",
-        "setupCommands": [
-          { "text": "-enable-pretty-printing", "ignoreFailures": true }
-        ]
-      }
+        {
+            "name": "gdb - debug current file",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${fileDirname}/${fileBasenameNoExtension}",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${fileDirname}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "gcc build current file",
+            "logging": {}
+        }
     ]
-  }
+}
