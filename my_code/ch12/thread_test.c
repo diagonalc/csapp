@@ -27,4 +27,3 @@ void *thread(void *vargp)
     return NULL;
 }
 
-// sem
