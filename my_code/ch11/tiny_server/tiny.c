@@ -79,20 +79,21 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
     len += sprintf(body + len, "<hr><em>The Tiny Web server</em>\r\n");
 
     sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
-    Rio_writen(fd, buf, strlen(buf));
+    rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Connection: close\r\n");
-    Rio_writen(fd, buf, strlen(buf));
-    // although the buffer zone won't be flushed, sprintf will attach a \0 at the end and strlen(buf) will only count to \0
+    rio_writen(fd, buf, strlen(buf));
+    // although the buffer zone won't be flushed, sprintf will attach a \0 at the end and strlen(buf) will only count to \0 (including \0)
     sprintf(buf, "Content-type: text/html\r\n");
-    Rio_writen(fd, buf, strlen(buf));
+    rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Content-length: %d\r\n\r\n", (int)strlen(body));
-    Rio_writen(fd, buf, strlen(buf));
-    Rio_writen(fd, body, strlen(body));
+    rio_writen(fd, buf, strlen(buf));
+    rio_writen(fd, body, strlen(body));
 }
 
 void read_requesthdrs(rio_t *rp)
 {
     char buf[MAXLINE];
+    
 
     rio_readlineb(rp, buf, MAXLINE);
 
@@ -145,7 +146,13 @@ void serve_static(int fd, char *filename, int filesize, char *method)
     ofs += sprintf(buf + ofs, "Connection: close\r\n");
     ofs += sprintf(buf + ofs, "Content-length: %d\r\n", filesize);
     ofs += sprintf(buf + ofs, "Content-type: %s\r\n\r\n", filetype); // two consecutive \r\n marks the ending of the headers
-    rio_writen(fd, buf, strlen(buf));
+    // rio_writen(fd, buf, strlen(buf)) will return -1 and set errno to EPIPE when client break the connection early;
+    if (rio_writen(fd, buf, strlen(buf)) != strlen(buf))
+    {
+        if (errno == EPIPE)
+            fprintf(stderr, "EPIPE: Client closed connection before receiving headers.\n");
+        return;
+    }
 
     printf("Response headers:\n");
     printf("%s", buf);
@@ -158,7 +165,13 @@ void serve_static(int fd, char *filename, int filesize, char *method)
     srcp = malloc(filesize);
     rio_readn(srcfd, srcp, filesize);
     close(srcfd);
-    rio_writen(fd, srcp, filesize);
+    // check each time when sending stuff to client
+    if (rio_writen(fd, srcp, filesize) != filesize)
+    {
+        if (errno == EPIPE)
+            fprintf(stderr, "EPIPE: Client closed connection prematurely while writing body.\n");
+    }
+
     free(srcp);
     // munmap(srcp, filesize);
 }
@@ -184,9 +197,9 @@ void serve_dynamic(int fd, char *filename, char *cgiargs, char *method)
     char buf[MAXLINE];
     char *emptylist[] = {NULL};
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
-    Rio_writen(fd, buf, strlen(buf));
+    rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Server: Tiny Web Server\r\n");
-    Rio_writen(fd, buf, strlen(buf));
+    rio_writen(fd, buf, strlen(buf));
 
     if (fork() == 0)
     {
@@ -206,6 +219,7 @@ int main(int argc, char **argv)
         unix_error("format: ./tiny <port>");
         exit(0);
     }
+    signal(SIGPIPE, SIG_IGN);
     int listenfd, connfd;
     char host[MAXLINE];
     char port[MAXLINE];
