@@ -11,6 +11,7 @@ void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs, char *method);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 void *thread(void *vargp);
+void cleanup(void *arg);
 
 sbuf_t s;
 int thread_no;
@@ -257,6 +258,7 @@ int main(int argc, char **argv)
     listenfd = open_listenfd(atoi(argv[1]));
     while (1)
     {
+
         clilen = sizeof(struct sockaddr_storage);
         connfd = accept(listenfd, (SA *)&cliaddr, &clilen);
         getnameinfo((SA *)&cliaddr, clilen, host, MAXLINE, port, MAXLINE, 0);
@@ -267,6 +269,13 @@ int main(int argc, char **argv)
     exit(0);
 }
 
+void cleanup(void *arg)
+{
+    int fd = *((int *)arg);
+    if (fd > 0)
+        close(fd);
+}
+
 void *thread(void *vargp)
 {
     pthread_detach(pthread_self());
@@ -274,10 +283,13 @@ void *thread(void *vargp)
     int no = thread_no;
     thread_no++;
     V(&m_tno);
+
     while (1)
     {
         int fd = sbuf_remove(&s);
+        pthread_cleanup_push(cleanup, &fd);
         doit(fd, no);
-        close(fd);
+        pthread_cleanup_pop(1);
     }
+    return NULL;
 }
