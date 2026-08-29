@@ -12,6 +12,7 @@ void *doit(void *cfd)
 {
     pthread_detach(pthread_self());
     int fd = *((int *)cfd);
+    free(cfd);
     rio_t rio;
     int is_static;
     struct stat statbuf;
@@ -249,7 +250,8 @@ int main(int argc, char **argv)
         connfd = accept(listenfd, (SA *)&cliaddr, &clilen);
         getnameinfo((SA *)&cliaddr, clilen, host, MAXLINE, port, MAXLINE, 0);
         printf("Connected to: %s:%s\n", host, port);
-        int *cfd = &connfd;
+        int *cfd = malloc(sizeof(int));
+        *cfd = connfd;
         pthread_create(&tid, NULL, doit, cfd);
     }
 

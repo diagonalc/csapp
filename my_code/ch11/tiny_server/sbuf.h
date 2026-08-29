@@ -5,14 +5,14 @@
 typedef struct sbuf_t sbuf_t;
 void sbuf_init(sbuf_t *s, int n);
 void sbuf_deinit(sbuf_t *s);
-void sbuf_insert(sbuf *s, int val);
-int sbuf_remove(sbuf *s);
+void sbuf_insert(sbuf_t *s, int val);
+int sbuf_remove(sbuf_t *s);
 
-struct sbuf
+struct sbuf_t
 {
     int *buf;
     int front;
-    int back;
+    int rear;
     int max;
     sem_t mutex;
     sem_t slots;

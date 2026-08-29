@@ -1,17 +1,23 @@
 #include "csapp.h"
+#include "sbuf.h"
+#define SBUF_SIZE 16
+#define NTHREAD 4
 
-void *doit(void *cfd);
-void read_requesthdrs(rio_t *rp);
+void doit(int fd, int pn);
+int read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
 void serve_static(int fd, char *filename, int filesize, char *method);
 void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs, char *method);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+void *thread(void *vargp);
 
-void *doit(void *cfd)
+sbuf_t s;
+int thread_no;
+sem_t m_tno;
+
+void doit(int fd, int pn)
 {
-    pthread_detach(pthread_self());
-    int fd = *((int *)cfd);
     rio_t rio;
     int is_static;
     struct stat statbuf;
@@ -27,25 +33,34 @@ void *doit(void *cfd)
     if (sscanf(buf, "%s %s %s", method, uri, version) < 3)
     {
         clienterror(fd, buf, "400", "Bad Request", "Tiny web server received a malformed request");
-        return NULL;
+        return;
     }
     if (strcasecmp(method, "GET") && strcasecmp(method, "HEAD") && strcasecmp(method, "POST"))
     {
         clienterror(fd, method, "501", "Not Implemented", "Tiny web server has not implement this method yet");
-        return NULL;
+        return;
     }
-    read_requesthdrs(&rio);
+    int content_length = read_requesthdrs(&rio);
     is_static = parse_uri(uri, filename, cgiarg);
 
     if (strcasecmp(method, "POST") == 0)
     {
-        rio_readlineb(&rio, cgiarg, MAXLINE);
+        if (content_length > 0)
+        {
+            if (content_length >= MAXLINE)
+            {
+                clienterror(fd, filename, "412", "Bad Request", "POST body too large");
+                return;
+            }
+            rio_readnb(&rio, cgiarg, content_length);
+            cgiarg[content_length] = '\0';
+        }
     }
 
     if (stat(filename, &statbuf) < 0)
     {
         clienterror(fd, filename, "404", "Not found", "Required file cannot be found");
-        return NULL;
+        return;
     }
 
     if (is_static)
@@ -53,7 +68,7 @@ void *doit(void *cfd)
         if (!(S_ISREG(statbuf.st_mode)) || !(S_IRUSR & statbuf.st_mode))
         {
             clienterror(fd, filename, "403", "Forbidden", "Required file cannot be read");
-            return NULL;
+            return;
         }
         serve_static(fd, filename, statbuf.st_size, method);
     }
@@ -63,12 +78,10 @@ void *doit(void *cfd)
         {
 
             clienterror(fd, filename, "403", "Forbidden", "Required CGI program cannot be run");
-            return NULL;
+            return;
         }
         serve_dynamic(fd, filename, cgiarg, method);
     }
-    close(fd);
-    return NULL;
 }
 
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
@@ -94,18 +107,21 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
     rio_writen(fd, body, strlen(body));
 }
 
-void read_requesthdrs(rio_t *rp)
+int read_requesthdrs(rio_t *rp)
 {
     char buf[MAXLINE];
-
+    int content_length = 0;
     rio_readlineb(rp, buf, MAXLINE);
 
     while (strcmp(buf, "\r\n") && strcmp(buf, "\n"))
     {
         printf("%s", buf);
+
+        if (strncasecmp(buf, "Content-Length:", 15) == 0)
+            content_length = atoi(buf + 15);
         rio_readlineb(rp, buf, MAXLINE);
     }
-    return;
+    return content_length;
 }
 
 int parse_uri(char *uri, char *filename, char *cgiargs)
@@ -141,7 +157,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
 void serve_static(int fd, char *filename, int filesize, char *method)
 {
     int srcfd;
-    char *srcp, filetype[MAXLINE], buf[MAXBUF];
+    char *srcp, filetype[128], buf[MAXBUF];
     get_filetype(filename, filetype);
     int ofs = 0;
     ofs += sprintf(buf + ofs, "HTTP/1.0 200 OK\r\n");
@@ -230,6 +246,14 @@ int main(int argc, char **argv)
     socklen_t clilen;
     pthread_t tid;
 
+    sbuf_init(&s, SBUF_SIZE);
+    thread_no = 0;
+    sem_init(&m_tno, 0, 1);
+
+    for (int i = 0; i < NTHREAD; i++)
+
+        pthread_create(&tid, NULL, thread, NULL);
+
     listenfd = open_listenfd(atoi(argv[1]));
     while (1)
     {
@@ -237,9 +261,23 @@ int main(int argc, char **argv)
         connfd = accept(listenfd, (SA *)&cliaddr, &clilen);
         getnameinfo((SA *)&cliaddr, clilen, host, MAXLINE, port, MAXLINE, 0);
         printf("Connected to: %s:%s\n", host, port);
-        int *cfd = &connfd;
-        pthread_create(&tid, NULL, doit, cfd);
+        sbuf_insert(&s, connfd);
     }
 
     exit(0);
+}
+
+void *thread(void *vargp)
+{
+    pthread_detach(pthread_self());
+    P(&m_tno);
+    int no = thread_no;
+    thread_no++;
+    V(&m_tno);
+    while (1)
+    {
+        int fd = sbuf_remove(&s);
+        doit(fd, no);
+        close(fd);
+    }
 }
