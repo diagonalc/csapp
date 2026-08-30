@@ -2,6 +2,7 @@
 #include "sbuf.h"
 #define SBUF_SIZE 16
 #define NTHREAD 4
+#define MAXTHREAD 16
 
 void doit(int fd, int pn);
 int read_requesthdrs(rio_t *rp);
@@ -15,6 +16,8 @@ void cleanup(void *arg);
 
 sbuf_t s;
 int thread_no;
+int buf_n;
+sem_t mutex;
 sem_t m_tno;
 
 void doit(int fd, int pn)
@@ -245,25 +248,50 @@ int main(int argc, char **argv)
     char port[MAXLINE];
     struct sockaddr_storage cliaddr;
     socklen_t clilen;
-    pthread_t tid;
+    pthread_t tid[MAXTHREAD];
 
     sbuf_init(&s, SBUF_SIZE);
     thread_no = 0;
+    buf_n = 0;
+    sem_init(&mutex, 0, 1);
     sem_init(&m_tno, 0, 1);
 
     for (int i = 0; i < NTHREAD; i++)
-
-        pthread_create(&tid, NULL, thread, NULL);
+        pthread_create(&tid[i], NULL, thread, NULL);
 
     listenfd = open_listenfd(atoi(argv[1]));
     while (1)
     {
-
+        if (buf_n == 0)
+        {
+            int temp = thread_no;
+            for (int i = temp / 2; i < temp; i++)
+                pthread_cancel(tid[i]);
+            P(&m_tno);
+            thread_no /= 2;
+            V(&m_tno);
+        }
+        else if (buf_n == s.max)
+        {
+            int temp = thread_no;
+            for (int i = temp; i < temp * 2; i++)
+            {
+                if (i >= MAXTHREAD)
+                    break;
+                pthread_create(&tid[i], NULL, thread, NULL);
+            }
+            P(&m_tno);
+            thread_no *= 2;
+            V(&m_tno);
+        }
         clilen = sizeof(struct sockaddr_storage);
         connfd = accept(listenfd, (SA *)&cliaddr, &clilen);
         getnameinfo((SA *)&cliaddr, clilen, host, MAXLINE, port, MAXLINE, 0);
         printf("Connected to: %s:%s\n", host, port);
         sbuf_insert(&s, connfd);
+        P(&mutex);
+        buf_n++;
+        V(&mutex);
     }
 
     exit(0);
@@ -286,10 +314,14 @@ void *thread(void *vargp)
 
     while (1)
     {
-        int fd = sbuf_remove(&s);
+        int fd = -1;
         pthread_cleanup_push(cleanup, &fd);
+        fd = sbuf_remove(&s);
         doit(fd, no);
         pthread_cleanup_pop(1);
+        P(&mutex);
+        buf_n--;
+        V(&mutex);
     }
     return NULL;
 }
