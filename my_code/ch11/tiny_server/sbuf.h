@@ -14,6 +14,7 @@ struct sbuf_t
     int front;
     int rear;
     int max;
+    int cnt;
     sem_t mutex;
     sem_t slots;
     sem_t items;

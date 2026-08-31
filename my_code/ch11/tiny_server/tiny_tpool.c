@@ -1,7 +1,7 @@
 #include "csapp.h"
 #include "sbuf.h"
 #define SBUF_SIZE 16
-#define NTHREAD 4
+#define NTHREAD 1
 #define MAXTHREAD 16
 
 void doit(int fd, int pn);
@@ -12,13 +12,27 @@ void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs, char *method);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 void *thread(void *vargp);
-void cleanup(void *arg);
+void *monitor(void *arg);
 
 sbuf_t s;
 int thread_no;
-int buf_n;
-sem_t mutex;
 sem_t m_tno;
+int peak;
+
+void *monitor(void *arg)
+{
+    while (1)
+    {
+        P(&m_tno);
+        int t = thread_no;
+        int p = peak;
+        V(&m_tno);
+        printf("[Monitor] Number of threads = %d, peak = %d\n", t, p);
+        fflush(stdout);
+        sleep(1);
+    }
+    return NULL;
+}
 
 void doit(int fd, int pn)
 {
@@ -249,12 +263,15 @@ int main(int argc, char **argv)
     struct sockaddr_storage cliaddr;
     socklen_t clilen;
     pthread_t tid[MAXTHREAD];
+    pthread_t mon;
 
     sbuf_init(&s, SBUF_SIZE);
     thread_no = 0;
-    buf_n = 0;
-    sem_init(&mutex, 0, 1);
+    peak = 0;
+
     sem_init(&m_tno, 0, 1);
+
+    pthread_create(&mon, NULL, monitor, NULL);
 
     for (int i = 0; i < NTHREAD; i++)
         pthread_create(&tid[i], NULL, thread, NULL);
@@ -262,46 +279,32 @@ int main(int argc, char **argv)
     listenfd = open_listenfd(atoi(argv[1]));
     while (1)
     {
-        if (buf_n == 0)
-        {
-            int temp = thread_no;
-            for (int i = temp / 2; i < temp; i++)
-                pthread_cancel(tid[i]);
-            P(&m_tno);
-            thread_no /= 2;
-            V(&m_tno);
-        }
-        else if (buf_n == s.max)
-        {
-            int temp = thread_no;
-            for (int i = temp; i < temp * 2; i++)
-            {
-                if (i >= MAXTHREAD)
-                    break;
-                pthread_create(&tid[i], NULL, thread, NULL);
-            }
-            P(&m_tno);
-            thread_no *= 2;
-            V(&m_tno);
-        }
+
         clilen = sizeof(struct sockaddr_storage);
         connfd = accept(listenfd, (SA *)&cliaddr, &clilen);
         getnameinfo((SA *)&cliaddr, clilen, host, MAXLINE, port, MAXLINE, 0);
         printf("Connected to: %s:%s\n", host, port);
+
+        P(&s.mutex);
+        int add_thread = (s.cnt >= thread_no);
+        if (s.cnt > peak)
+            peak = s.cnt;
+        V(&s.mutex);
+        if (add_thread)
+        {
+            P(&m_tno);
+            int temp = thread_no;
+            for (int i = temp; i < temp * 2 && i < MAXTHREAD; i++)
+            {
+                pthread_create(&tid[i], NULL, thread, NULL);
+                printf("A new thread is created\n");
+            }
+            V(&m_tno);
+        }
         sbuf_insert(&s, connfd);
-        P(&mutex);
-        buf_n++;
-        V(&mutex);
     }
 
     exit(0);
-}
-
-void cleanup(void *arg)
-{
-    int fd = *((int *)arg);
-    if (fd > 0)
-        close(fd);
 }
 
 void *thread(void *vargp)
@@ -314,14 +317,36 @@ void *thread(void *vargp)
 
     while (1)
     {
-        int fd = -1;
-        pthread_cleanup_push(cleanup, &fd);
-        fd = sbuf_remove(&s);
+        // for testing
+        sleep(1);
+
+        int fd = sbuf_remove(&s);
+
+        if (fd == -1)
+        {
+            printf("Thread exiting\n");
+            return NULL;
+        }
+
+        P(&s.mutex);
+        int is_emtpy = (s.cnt == 0);
+        V(&s.mutex);
+
+        if (is_emtpy)
+        {
+            P(&m_tno);
+            if (thread_no > NTHREAD)
+            {
+                int surplus = thread_no - NTHREAD;
+                thread_no = NTHREAD;
+                for (int i = 0; i < surplus; i++)
+                    sbuf_insert(&s, -1);
+            }
+            V(&m_tno);
+        }
+
         doit(fd, no);
-        pthread_cleanup_pop(1);
-        P(&mutex);
-        buf_n--;
-        V(&mutex);
+        close(fd);
     }
     return NULL;
 }
