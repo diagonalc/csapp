@@ -116,12 +116,13 @@ int cache_find(char *host, char *path, char *buf)
         {
             if (!strcasecmp(cache.lines[i].host, host) && !strcmp(cache.lines[i].path, path))
             {
-                memcpy(buf, cache.lines[i].data, cache.lines[i].size);
+                int found_size = cache.lines[i].size;
+                memcpy(buf, cache.lines[i].data, found_size);
 
                 cache.lines[i].lru_cnt = cache.cnt;
                 cache.cnt++;
                 pthread_mutex_unlock(&cache.lock);
-                return cache.lines[i].size;
+                return found_size; /* do not read cache.lines[i].size after unlock */
             }
         }
     }
@@ -160,7 +161,14 @@ void *doit(void *clifd_ptr)
     }
     read_requesthdrs(&rio_cli);
     parse_uri(uri, host, port, path);
-    int s = cache_find(host, path, reply);
+
+    /* Cache key = host:port + path.  Two origins that share a hostname but
+     * listen on different ports serve different content and must not share
+     * a cache entry, so the port is part of the key. */
+    char cachekey[MAXBUF];
+    sprintf(cachekey, "%s:%s", host, port);
+
+    int s = cache_find(cachekey, path, reply);
     if (s)
     {
         rio_writen(clifd, reply, s);
@@ -168,7 +176,7 @@ void *doit(void *clifd_ptr)
         return NULL;
     }
     serverfd = open_clientfd(host, atoi(port));
-    if (serverfd == -1)
+    if (serverfd < 0) /* open_clientfd returns -1 (unix) or -2 (DNS) on failure */
     {
         clienterror(clifd, host, "502", "Bad Gateway", "Proxy server cannot connect to the required server");
         close(clifd);
@@ -196,7 +204,7 @@ void *doit(void *clifd_ptr)
             ofs++;
     }
     if (ofs > 0 && ofs <= MAX_OBJECT_SIZE)
-        cache_insert(host, path, cache_buf, ofs);
+        cache_insert(cachekey, path, cache_buf, ofs);
     close(serverfd);
     close(clifd);
     return NULL;
@@ -216,49 +224,43 @@ void read_requesthdrs(rio_t *rio)
 
 void parse_uri(char *uri, char *host, char *port, char *path)
 {
-    char *first_colon, *second_colon, *slash_aft_port;
-    first_colon = strchr(uri, ':');
-    first_colon += 3;
-    // 192.168.1.2:8080/cgi-bin/adder?1&1
-    second_colon = strchr(first_colon, ':');
-    if (second_colon == NULL)
+    /* Skip past "<scheme>://" when present.  uri may also arrive in
+     * origin-form (e.g. "GET /x HTTP/1.1") with no scheme at all,
+     * so we must never assume a ':' exists (strchr can return NULL). */
+    char *rest = uri;
+    char *scheme_sep = strstr(uri, "://");
+    if (scheme_sep != NULL)
+        rest = scheme_sep + 3;
+
+    /* host[:port] ends at the first '/' (start of path) or at end-of-string.
+     * Only the FIRST ':' inside this host[:port] part is the port separator;
+     * any ':' that appears later (e.g. inside a query) must be ignored. */
+    char *slash = strchr(rest, '/');
+    size_t hostport_len = slash ? (size_t)(slash - rest) : strlen(rest);
+
+    char hostport[MAXBUF];
+    if (hostport_len >= sizeof(hostport))
+        hostport_len = sizeof(hostport) - 1;
+    memcpy(hostport, rest, hostport_len);
+    hostport[hostport_len] = '\0';
+
+    char *colon = strchr(hostport, ':');
+    if (colon != NULL)
     {
-        strcpy(port, "80");
-        // first_colon: 192.168.1.2/cgi-bin/adder?1&1
-        slash_aft_port = strchr(first_colon, '/');
-        if (slash_aft_port == NULL)
-        {
-            // 192.168.1.2
-            strcpy(host, first_colon);
-            strcpy(path, "/");
-            return;
-        }
-        *slash_aft_port = '\0';
-        // first_colon: 192.168.1.2 \0 cgi-bin/adder?1&1
-        strcpy(host, first_colon);
-        strcpy(path, "/");
-        strcat(path, slash_aft_port + 1);
+        *colon = '\0';
+        strcpy(host, hostport);
+        strcpy(port, colon + 1);
     }
     else
     {
-        *second_colon = '\0';
-        // 192.168.1.2 \0 8080/cgi-bin/adder?1&1
-        strcpy(host, first_colon);
-        slash_aft_port = strchr(second_colon + 1, '/');
-        if (slash_aft_port == NULL)
-        {
-            // 192.168.1.2 \0 8080
-            strcpy(host, first_colon);
-            strcpy(port, second_colon + 1);
-            strcpy(path, "/");
-            return;
-        }
-        *slash_aft_port = '\0';
-        // 192.168.1.2 \0 8080 \0 cgi-bin/adder?1&1
-        strcpy(port, second_colon + 1);
-        strcpy(path, "/");
-        strcat(path, slash_aft_port + 1);
+        strcpy(host, hostport);
+        strcpy(port, "80");
     }
+
+    if (slash != NULL)
+        strcpy(path, slash); /* keep the original full path + query */
+    else
+        strcpy(path, "/");
 }
 
 void clienterror(int fd, char *cause, char *errnum, char *short_msg, char *long_msg)

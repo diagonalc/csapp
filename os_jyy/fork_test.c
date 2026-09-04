@@ -22,3 +22,4 @@ int main()
         printf("Hello\n");
     }
 }
+//lec
