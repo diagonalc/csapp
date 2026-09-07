@@ -2,7 +2,13 @@
 #include "stdlib.h"
 
 int main(int argc, char** argv, char **envp){
-	printf("HI hi\n");
+	
+	int a, b;
+	a = 1;
+	b = 2;
+	int c = a+b;
+	
+	printf("%d\n" ,c);
 	exit(0);
 }
 
