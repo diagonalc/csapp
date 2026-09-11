@@ -16,8 +16,8 @@ int main(int argc, char **argv)
 
         close(fd[0]);
         dup2(STDERR_FILENO, STDOUT_FILENO);
-        char *exec_argv[3] = {"strace", "-T", argv[1]};
+        char *exec_argv[] = {"strace", "-T", argv[1], NULL};
         char *exec_envp[] = {"PATH=/usr/bin", NULL};
-        execve("strace", exec_argv, exec_envp);
+        execve("/usr/bin/strace", exec_argv, exec_envp);
     }
 }
