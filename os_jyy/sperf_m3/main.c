@@ -4,6 +4,7 @@
 #include <string.h>
 #include <regex.h>
 #include <sys/wait.h>
+#include <sys/time.h>
 #define MAX_SYSCALL 128
 
 typedef struct syscall_stat syscall_stat;
@@ -71,6 +72,51 @@ int parse_line(const char *line, regex_t *regex, char *name, size_t name_len, do
     return 0;
 }
 
+int cmp_by_time(const void *a, const void *b)
+{
+    const syscall_stat *sa = (const syscall_stat *)a;
+    const syscall_stat *sb = (const syscall_stat *)b;
+    if (sb->totaltime > sa->totaltime)
+        return 1;
+    if (sb->totaltime < sa->totaltime)
+        return -1;
+    return 0;
+}
+
+void print_top5(void)
+{
+    // 1. 计算总耗时
+    double grand_total = 0.0;
+    for (int i = 0; i < stat_cnt; i++)
+    {
+        grand_total += stats[i].totaltime;
+    }
+    if (grand_total <= 0.0)
+        return;
+
+    // 2. 复制一份数组（避免排序破坏原数组的顺序）
+    syscall_stat sorted[MAX_SYSCALL];
+    memcpy(sorted, stats, sizeof(syscall_stat) * stat_cnt);
+
+    // 3. 排序（降序）
+    qsort(sorted, stat_cnt, sizeof(syscall_stat), cmp_by_time);
+
+    // 4. 打印前 5 名
+    int top = (stat_cnt < 5) ? stat_cnt : 5;
+    for (int i = 0; i < top; i++)
+    {
+        double ratio = sorted[i].totaltime / grand_total * 100.0;
+        printf("%s (%d%%)\n", sorted[i].name, (int)ratio);
+    }
+
+    // 5. 打印 80 个 '\0' 作为分隔符
+    for (int i = 0; i < 80; i++)
+    {
+        putchar('\0');
+    }
+    fflush(stdout);
+}
+
 int main(int argc, char **argv)
 {
     int fd[2];
@@ -111,6 +157,10 @@ int main(int argc, char **argv)
         size_t cap = 0;
         char name[64];
         double time;
+
+        struct timeval last_print, now;
+        gettimeofday(&last_print, NULL);
+
         while (getline(&line, &cap, fp) != -1)
         {
             if (parse_line(line, &regex, name, sizeof(name), &time) == 0)
@@ -121,9 +171,20 @@ int main(int argc, char **argv)
                     s->totaltime += time;
                     s->call_cnt++;
                 }
-                //printf("函数: %-10s 耗时: %.6f 秒\n", name, time);
+
+                // 检查是否距离上次打印超过 100ms
+                gettimeofday(&now, NULL);
+                long elapsed_ms = (now.tv_sec - last_print.tv_sec) * 1000 + (now.tv_usec - last_print.tv_usec) / 1000;
+                if (elapsed_ms >= 100)
+                {
+                    print_top5();
+                    last_print = now;
+                }
             }
         }
+        // 循环结束后最后打印一次
+        print_top5();
+
         free(line);
         fclose(fp);
         regfree(&regex);
