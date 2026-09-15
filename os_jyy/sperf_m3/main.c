@@ -127,11 +127,19 @@ int main(int argc, char **argv)
     }
     if (fork() == 0) // child process
     {
+
         close(fd[0]); // close read end
         dup2(fd[1], STDOUT_FILENO);
         dup2(fd[1], STDERR_FILENO);
         close(fd[1]);
-        char *exec_argv[] = {"strace", "-T", argv[1], NULL};
+        char **exec_argv = malloc(sizeof(char *) * (argc + 2));
+        exec_argv[0] = "strace";
+        exec_argv[1] = "-T";
+        for (int i = 1; i < argc; i++)
+        {
+            exec_argv[i + 1] = argv[i];
+        }
+        exec_argv[argc + 1] = NULL;
         char *exec_envp[] = {"PATH=/usr/bin", NULL};
         execve("/usr/bin/strace", exec_argv, exec_envp);
         exit(1);
