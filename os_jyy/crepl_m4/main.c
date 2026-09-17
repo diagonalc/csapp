@@ -84,6 +84,19 @@ int main()
             }
             insert(name, fd);
             printf("name: %s, fd: %d\n", funcs[func_cnt - 1].func_name, funcs[func_cnt - 1].fd);
+
+            char so_p[128];
+            strcpy(so_p, tt);
+            strcpy(so_p + strlen(so_p) - 2, ".so");
+            char *argv[] = {"gcc", "-shared", "-fPIC", "-Wno-implicit-function-declaration",
+                            "-o", so_p, tt, NULL};
+            if (fork() == 0)
+            {
+                execvp("gcc", argv);
+                perror("Error during compilation");
+                exit(-1);
+            }
+            
             // unlink(tt);
         }
         free(line);
