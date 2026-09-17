@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <readline/readline.h>
 #include <regex.h>
+#include <dlfcn.h>
 #define MAX_FUNC 100
 #define MAX_FUNC_NAME 128
 
@@ -96,8 +97,13 @@ int main()
                 perror("Error during compilation");
                 exit(-1);
             }
-            
+
+            void *h = dlopen(so_p, RTLD_NOW | RTLD_GLOBAL);
+            if (!h)
+                return -1;
+
             // unlink(tt);
+            // unlink(so_p);
         }
         free(line);
     }
