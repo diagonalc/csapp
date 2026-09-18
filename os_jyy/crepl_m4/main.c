@@ -112,3 +112,5 @@ int main()
         close(funcs[i].fd);
     exit(0);
 }
+
+//save
