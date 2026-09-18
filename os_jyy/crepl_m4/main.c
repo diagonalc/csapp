@@ -20,7 +20,7 @@ struct func
 func_t funcs[MAX_FUNC];
 int func_cnt = 0;
 
-void insert(char *name, const void *handle, const int (*entry)(void))
+void insert(char *name, void *handle, int (*entry)(void))
 {
     func_t nf;
     nf.handle = handle;
@@ -74,8 +74,7 @@ int build_and_load(const char *c_path, const char *func_name, void **handle, int
     char so_path[128];
     strcpy(so_path, c_path);
     strcpy(so_path + strlen(so_path) - 2, ".so");
-    char *argv[] = {"gcc", "-shared", "-fPIC", "-Wno-implicit-function-declaration",
-                    "-o", so_path, c_path, NULL};
+    char *argv[] = {"gcc", "-shared", "-fPIC", "-Wno-implicit-function-declaration", "-o", so_path, c_path, NULL};
     pid_t pid = fork();
     if (pid == 0)
     {
@@ -84,7 +83,7 @@ int build_and_load(const char *c_path, const char *func_name, void **handle, int
         perror("Error during compilation");
         exit(-1);
     }
-    waitpid(pid, NULL, NULL);
+    waitpid(pid, NULL, 0);
     *handle = dlopen(so_path, RTLD_NOW);
     if (!(*handle))
         return -1;
