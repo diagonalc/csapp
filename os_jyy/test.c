@@ -9,11 +9,17 @@ struct test
 
 struct test arr[10];
 
+int a()
+{
+	printf("hi\n");
+	return 0;
+}
+
 int main(int argc, char **argv, char **envp)
 {
-	struct test a;
-	strcpy(a.name, "hhihihi");
-	arr[0] = a;
-	printf("%s\n", a.name);
+
+	int (*entry)(void);
+	entry = &a;
+	entry();
 	exit(0);
 }
