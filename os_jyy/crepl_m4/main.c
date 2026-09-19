@@ -81,21 +81,32 @@ int build_and_load(const char *c_path, const char *func_name, void **handle, int
         execvp("gcc", argv);
 
         perror("Error during compilation");
-        exit(-1);
+        _exit(127);
     }
     int status;
     waitpid(pid, &status, 0);
-    if (WEXITSTATUS(status) == -1)
+    if (WEXITSTATUS(status))
     {
-        perror("Compilation Error\n");
+        fprintf(stderr, "Compilation Error\n");
         return -1;
     }
-    *handle = dlopen(so_path, RTLD_NOW);
+
+    *handle = dlopen(so_path, RTLD_NOW | RTLD_GLOBAL);
     if (!(*handle))
+    {
+        printf("%s\n", dlerror());
         return -1;
+    }
+
     *entry = dlsym(*handle, func_name);
+    if (!(*entry))
+    {
+        printf("%s\n", dlerror());
+        return -1;
+    }
     // unlink(c_path);
     // unlink(so_path);
+    return 0;
 }
 
 int main()
@@ -108,7 +119,7 @@ int main()
         if (!line)
             break;
 
-        if (strncmp(line, "int", 3) == 0)
+        if (strncmp(line, "int ", 4) == 0)
         {
             printf("Its a function\n");
             int fd = mkstemps(c_path, 2);
@@ -118,13 +129,17 @@ int main()
             char name[MAX_FUNC_NAME];
             if (extract_funcname(line, name, MAX_FUNC_NAME) == -1)
             {
-                printf("Extraction failed\n");
-                return -1;
+                printf("Function name extraction failed\n");
+                continue;
             }
 
-            void *h;
-            int (*entry)(void);
-            build_and_load(c_path, name, &h, &entry);
+            void *h = NULL;
+            int (*entry)(void) = NULL;
+            if (build_and_load(c_path, name, &h, &entry) != 0)
+            {
+                fprintf(stderr, "Build and load error");
+                continue;
+            }
             insert(name, h, entry);
             printf("name: %s\n", funcs[func_cnt - 1].func_name);
         }
@@ -134,21 +149,27 @@ int main()
             int fd = mkstemps(c_path, 2);
             char wrapper[2048];
             char wrapper_name[128];
-            sprintf(wrapper, "int __expr_wrapper_%d(){ return %s; }", wrapper_cnt, line);
+            snprintf(wrapper, 2048, "int __expr_wrapper_%d(){ return %s; }", wrapper_cnt, line);
             sprintf(wrapper_name, "__expr_wrapper_%d", wrapper_cnt);
+            wrapper_cnt++;
             write(fd, wrapper, strlen(wrapper));
             write(fd, "\n", 1);
             close(fd);
-            void *h;
-            int (*entry)(void);
-            build_and_load(c_path, wrapper_name, &h, &entry);
+            void *h = NULL;
+            int (*entry)(void) = NULL;
+            if (build_and_load(c_path, wrapper_name, &h, &entry) != 0)
+            {
+                fprintf(stderr, "Build and load error");
+                continue;
+            }
+
             printf("%d\n", entry());
+            fflush(stdout);
         }
 
         free(line);
     }
-    for (int i = 0; i < func_cnt; i++)
-        dlclose(funcs[i].handle);
+
     exit(0);
 }
 
