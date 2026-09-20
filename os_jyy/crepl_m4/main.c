@@ -104,8 +104,8 @@ int build_and_load(const char *c_path, const char *func_name, void **handle, int
         printf("%s\n", dlerror());
         return -1;
     }
-    // unlink(c_path);
-    // unlink(so_path);
+    unlink(c_path);
+    unlink(so_path);
     return 0;
 }
 
