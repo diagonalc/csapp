@@ -121,7 +121,7 @@ int main()
 
         if (strncmp(line, "int ", 4) == 0)
         {
-            printf("Its a function\n");
+            //printf("Its a function\n");
             int fd = mkstemps(c_path, 2);
             write(fd, line, strlen(line));
             write(fd, "\n", 1);
@@ -145,7 +145,7 @@ int main()
         }
         else
         {
-            printf("Its a expression\n");
+            //printf("Its a expression\n");
             int fd = mkstemps(c_path, 2);
             char wrapper[2048];
             char wrapper_name[128];
